@@ -41,6 +41,7 @@ func main() {
 	headerSql = strings.Replace(headerSql, "@", "Case__c", 1)
 
 	rows, err := db.Query(headerSql)
+	headerMaptoIdx := make(map[string]int)
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -48,10 +49,14 @@ func main() {
 
 	var header strings.Builder
 	var fields []string = make([]string, 0)
+	index := 0
 	for rows.Next() {
 		var temp result
 		rows.Scan(&temp.Field, &temp.Type, &temp.Null, &temp.Key, &temp.Default, &temp.Extra)
 		fields = append(fields, temp.Field)
+		upperCaseField := strings.ToUpper(temp.Field)
+		headerMaptoIdx[upperCaseField] = index
+		index++
 	}
 	for index, val := range fields {
 		if index != 0 {
@@ -64,7 +69,7 @@ func main() {
 	// fmt.Println(sqlQuery)
 
 	//reading csv in batches of 100 and inserting into DB;
-	filePath := "/Users/piyushbansal/Desktop/tempFile.csv"
+	filePath := "/Users/piyushbansal/Desktop/sample.csv"
 	csv_file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -74,27 +79,45 @@ func main() {
 	var batchSize int = 100
 	i := 0
 	var valuelist strings.Builder
+	headerFlaginCSV := 0
+	indexToFieldMap := make(map[int]string)
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
 			fmt.Println("File finished")
 			break
 		}
-
+		if headerFlaginCSV == 0 {
+			headerFlaginCSV = 1
+			for idx, value := range record {
+				indexToFieldMap[idx] = value
+			}
+			continue
+		}
 		curr++
+		// size := len(headerMaptoIdx)
+		// var fieldsMapper = make([]string, size)
+		dataMapper := make(map[string]string)
+		for idx, value := range record {
+			headerName := indexToFieldMap[idx]
+			dataMapper[headerName] = value
+		}
+
 		if valuelist.Len() != 0 {
 			valuelist.WriteString(",")
 		}
 		valuelist.WriteString("(")
-		for idx, value := range record {
+		temp := 0
+		for Key, _ := range headerMaptoIdx {
 
-			if idx != 0 {
+			if temp != 0 {
 				valuelist.WriteString(",")
 			}
 			valuelist.WriteString("'")
+			value := strings.ReplaceAll(dataMapper[Key], "'", "")
 			valuelist.WriteString(value)
 			valuelist.WriteString("'")
-
+			temp++
 		}
 		valuelist.WriteString(")")
 		if curr == batchSize {
@@ -104,7 +127,7 @@ func main() {
 			if err != nil {
 				fmt.Println(err.Error())
 			} else {
-				fmt.Println("batch %s inserted. ", i)
+				fmt.Printf("batch %d inserted. ", i)
 				i++
 			}
 			valuelist = strings.Builder{}
@@ -118,12 +141,13 @@ func main() {
 		valuelist.WriteString(";")
 
 		var tmpSQL string = strings.ReplaceAll(sqlQuery, ":valueList", valuelist.String())
+
 		fmt.Println(tmpSQL)
 		_, err = db.Exec(tmpSQL)
 		if err != nil {
 			fmt.Println(err.Error())
 		} else {
-			fmt.Printf("batch %s inserted. ", i)
+			fmt.Printf("batch %d inserted. ", i)
 			i++
 		}
 		valuelist = strings.Builder{}
